@@ -92,6 +92,7 @@ public class LevelOne extends LevelController {
     private boolean musicStarted = false;
     private float musicDelay = 3f;
     private static final float MUSIC_START_TIME = 62f;
+    private boolean musicFileExists = true; // Flag to track if music file exists
 
     // Damage cooldown
     private float damageCooldown = 0f;
@@ -123,17 +124,31 @@ public class LevelOne extends LevelController {
         this.shapes = new ShapeRenderer();
         this.cityBackground = new Texture(Gdx.files.internal("backgrounds/city_night.png"));
 
-        this.levelMusic = Gdx.audio.newMusic(Gdx.files.internal("music/boaz_and_the_dogs.mp3"));
-        levelMusic.setLooping(false);
-        levelMusic.setVolume(0.6f);
+        // Initialize music with error handling
+        try {
+            FileHandle musicFile = Gdx.files.internal("music/boaz_and_the_dogs.mp3");
+            if (musicFile.exists()) {
+                this.levelMusic = Gdx.audio.newMusic(musicFile);
+                levelMusic.setLooping(false);
+                levelMusic.setVolume(0.6f);
 
-        levelMusic.setOnCompletionListener(new Music.OnCompletionListener() {
-            @Override
-            public void onCompletion(Music music) {
-                music.play();
-                music.setPosition(MUSIC_START_TIME);
+                levelMusic.setOnCompletionListener(new Music.OnCompletionListener() {
+                    @Override
+                    public void onCompletion(Music music) {
+                        music.play();
+                        music.setPosition(MUSIC_START_TIME);
+                    }
+                });
+            } else {
+                this.levelMusic = null;
+                this.musicFileExists = false;
+                Gdx.app.log("LevelOne", "Music file not found: music/boaz_and_the_dogs.mp3");
             }
-        });
+        } catch (Exception e) {
+            this.levelMusic = null;
+            this.musicFileExists = false;
+            Gdx.app.error("LevelOne", "Error loading music file", e);
+        }
 
         musicStarted = false;
         musicDelay = 3f;
@@ -501,13 +516,18 @@ public class LevelOne extends LevelController {
     }
 
     private void updateGameplay(float delta) {
-        // Delayed music start
-        if (!musicStarted && levelMusic != null) {
+        // Delayed music start - only if music file exists
+        if (!musicStarted && levelMusic != null && musicFileExists) {
             musicDelay -= delta;
             if (musicDelay <= 0f) {
-                levelMusic.play();
-                levelMusic.setPosition(MUSIC_START_TIME); // jump to 1:02 right after starting
-                musicStarted = true;
+                try {
+                    levelMusic.play();
+                    levelMusic.setPosition(MUSIC_START_TIME); // jump to 1:02 right after starting
+                    musicStarted = true;
+                } catch (Exception e) {
+                    Gdx.app.error("LevelOne", "Error playing music", e);
+                    musicFileExists = false; // Disable music if playback fails
+                }
             }
         }
 

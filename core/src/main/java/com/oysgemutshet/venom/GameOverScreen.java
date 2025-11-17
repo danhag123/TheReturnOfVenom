@@ -13,7 +13,6 @@ import com.badlogic.gdx.graphics.g2d.freetype.FreeTypeFontGenerator;
 import com.badlogic.gdx.graphics.g2d.freetype.FreeTypeFontGenerator.FreeTypeFontParameter;
 import com.badlogic.gdx.audio.Music;
 
-
 public class GameOverScreen extends ScreenAdapter {
 
     private final VengeanceOfVenomGame game;
@@ -23,6 +22,7 @@ public class GameOverScreen extends ScreenAdapter {
 
     private Music gameOverMusic;
     private float gameOverMusicTime = 0f;
+    private boolean musicFileExists = true;
 
     private static final float GO_MUSIC_MAX_TIME = 60f;
     private static final float GO_MUSIC_TARGET_VOLUME = 0.6f;
@@ -43,35 +43,55 @@ public class GameOverScreen extends ScreenAdapter {
         generator.dispose();
 
         this.layout = new GlyphLayout();
+
+        // Initialize music with error handling
+        try {
+            com.badlogic.gdx.files.FileHandle musicFile = Gdx.files.internal("music/boaz_and_the_dogs.mp3");
+            if (musicFile.exists()) {
+                this.gameOverMusic = Gdx.audio.newMusic(musicFile);
+                gameOverMusic.setLooping(false);
+            } else {
+                this.gameOverMusic = null;
+                this.musicFileExists = false;
+                Gdx.app.log("GameOverScreen", "Music file not found: music/boaz_and_the_dogs.mp3");
+            }
+        } catch (Exception e) {
+            this.gameOverMusic = null;
+            this.musicFileExists = false;
+            Gdx.app.error("GameOverScreen", "Error loading music file", e);
+        }
     }
 
     @Override
     public void show() {
-        if (gameOverMusic == null) {
-            gameOverMusic = Gdx.audio.newMusic(Gdx.files.internal("music/boaz_and_the_dogs.mp3"));
-            gameOverMusic.setLooping(false);
+        if (gameOverMusic != null && musicFileExists) {
+            try {
+                gameOverMusic.setVolume(0f);
+                gameOverMusic.setPosition(0f);
+                gameOverMusic.play();
+                gameOverMusicTime = 0f;
+            } catch (Exception e) {
+                Gdx.app.error("GameOverScreen", "Error playing music", e);
+                musicFileExists = false;
+            }
         }
-
-        gameOverMusic.setVolume(0f);
-        gameOverMusic.setPosition(0f);
-        gameOverMusic.play();
-        gameOverMusicTime = 0f;
     }
 
     @Override
     public void render(float delta) {
-        gameOverMusicTime += delta;
+        // Music handling - only if music file exists and is playing
+        if (gameOverMusic != null && musicFileExists && gameOverMusic.isPlaying()) {
+            gameOverMusicTime += delta;
 
-        // Loop first minute
-        if (gameOverMusicTime > GO_MUSIC_MAX_TIME) {
-            gameOverMusicTime = 0f;
-            gameOverMusic.stop();
-            gameOverMusic.setPosition(0f);
-            gameOverMusic.play();
-        }
+            // Loop first minute
+            if (gameOverMusicTime > GO_MUSIC_MAX_TIME) {
+                gameOverMusicTime = 0f;
+                gameOverMusic.stop();
+                gameOverMusic.setPosition(0f);
+                gameOverMusic.play();
+            }
 
-        // Fade in
-        if (gameOverMusic != null) {
+            // Fade in
             float v = gameOverMusic.getVolume();
             if (v < GO_MUSIC_TARGET_VOLUME) {
                 v = Math.min(GO_MUSIC_TARGET_VOLUME, v + GO_MUSIC_FADE_SPEED * delta);
@@ -121,13 +141,11 @@ public class GameOverScreen extends ScreenAdapter {
             // Back to intro
             game.setScreenWithFade(new IntroScreen(game));
         }
-
-
     }
 
     @Override
     public void hide() {
-        if (gameOverMusic != null) {
+        if (gameOverMusic != null && gameOverMusic.isPlaying()) {
             gameOverMusic.stop();
         }
     }
@@ -140,5 +158,3 @@ public class GameOverScreen extends ScreenAdapter {
         font.dispose();
     }
 }
-
-
