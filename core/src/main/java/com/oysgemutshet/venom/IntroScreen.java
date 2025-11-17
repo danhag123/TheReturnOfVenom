@@ -22,6 +22,7 @@ public class IntroScreen extends ScreenAdapter {
 
     private Music introMusic;
     private float introMusicTime = 0f;
+    private boolean musicExists = false; // Flag to track if music file exists
 
     private static final float INTRO_MUSIC_MAX_TIME = 60f;
     private static final float INTRO_MUSIC_TARGET_VOLUME = 0.6f;
@@ -60,15 +61,23 @@ public class IntroScreen extends ScreenAdapter {
 
     @Override
     public void show() {
-        // Create music lazily if needed
-        if (introMusic == null) {
-            introMusic = Gdx.audio.newMusic(Gdx.files.internal("music/boaz_and_the_dogs.mp3"));
-            introMusic.setLooping(false);
-        }
+        // Check if music file exists before trying to load it
+        FileHandle musicFile = Gdx.files.internal("music/boaz_and_the_dogs.mp3");
+        musicExists = musicFile.exists();
 
-        introMusic.setVolume(0f);  // start silent for fade-in
-        introMusic.setPosition(0f); // just to be safe, restart from the beginning
-        introMusic.play();
+        if (musicExists) {
+            // Create music lazily if needed
+            if (introMusic == null) {
+                introMusic = Gdx.audio.newMusic(musicFile);
+                introMusic.setLooping(false);
+            }
+
+            introMusic.setVolume(0f);  // start silent for fade-in
+            introMusic.setPosition(0f); // just to be safe, restart from the beginning
+            introMusic.play();
+        } else {
+            Gdx.app.log("IntroScreen", "Music file not found: music/boaz_and_the_dogs.mp3");
+        }
 
         introMusicTime = 0f;  // reset loop timer
 
@@ -80,18 +89,19 @@ public class IntroScreen extends ScreenAdapter {
 
     @Override
     public void render(float delta) {
-        introMusicTime += delta;
+        // Only update music timing and fading if music exists and is playing
+        if (musicExists && introMusic != null) {
+            introMusicTime += delta;
 
-        // Loop first minute
-        if (introMusicTime > INTRO_MUSIC_MAX_TIME) {
-            introMusicTime = 0f;
-            introMusic.stop();
-            introMusic.setPosition(0f);
-            introMusic.play();
-        }
+            // Loop first minute
+            if (introMusicTime > INTRO_MUSIC_MAX_TIME) {
+                introMusicTime = 0f;
+                introMusic.stop();
+                introMusic.setPosition(0f);
+                introMusic.play();
+            }
 
-        // Fade in
-        if (introMusic != null) {
+            // Fade in
             float v = introMusic.getVolume();
             if (v < INTRO_MUSIC_TARGET_VOLUME) {
                 v = Math.min(INTRO_MUSIC_TARGET_VOLUME, v + INTRO_MUSIC_FADE_SPEED * delta);
@@ -275,7 +285,7 @@ public class IntroScreen extends ScreenAdapter {
 
     @Override
     public void hide() {
-        if (introMusic != null) {
+        if (introMusic != null && musicExists) {
             introMusic.stop();
         }
     }
