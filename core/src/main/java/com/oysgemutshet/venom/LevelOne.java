@@ -103,8 +103,8 @@ public class LevelOne extends LevelController {
     private float introTime = 0f;
 
     // Police spawn difficulty tuning
-    private static final float EASY_POLICE_SPAWN_INTERVAL = 5f;   // before first car
-    private static final float HARD_POLICE_SPAWN_INTERVAL = 1.5f; // after first car (slightly more often)
+    private static final float EASY_POLICE_SPAWN_INTERVAL = 6f;   // before first car
+    private static final float HARD_POLICE_SPAWN_INTERVAL = 2.4f; // after first car (slightly more often)
 
     private float policeSpawnInterval = EASY_POLICE_SPAWN_INTERVAL;
     private boolean firstPoliceCarSpawned = false;
