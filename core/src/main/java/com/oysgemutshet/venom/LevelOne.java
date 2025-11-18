@@ -26,6 +26,12 @@ public class LevelOne extends LevelController {
         GAMEPLAY
     }
 
+    private enum Stage {
+        POLICE,
+        MILITARY
+    }
+
+
     // Data for intro dialogue lines
     private static class IntroLine {
         final String text;
@@ -94,6 +100,21 @@ public class LevelOne extends LevelController {
     private static final float MUSIC_START_TIME = 62f;
     private boolean musicFileExists = true; // Flag to track if music file exists
 
+    // Military phase music
+    private Music militaryMusic;
+    private boolean militaryMusicStarted = false;
+    private boolean musicFadingOut = false;
+    private float musicFadeTimer = 0f;
+    private static final float MUSIC_FADE_DURATION = 3f; // "after a few seconds"
+
+    // Military plane + bomb system
+    private static final float MILITARY_PLANE_INTERVAL = 3f;
+    private float militaryPlaneTimer = 5f; // delay before first plane
+
+    private final Array<MilitaryPlane> planes = new Array<>();
+    private final Array<Bomb> bombs = new Array<>();
+
+
     // Damage cooldown
     private float damageCooldown = 0f;
     private static final float DAMAGE_COOLDOWN_TIME = 1f; // 1 second between damage
@@ -102,12 +123,22 @@ public class LevelOne extends LevelController {
     private Phase phase = Phase.INTRO;
     private float introTime = 0f;
 
+    private Stage stage = Stage.POLICE;
+
+
     // Police spawn difficulty tuning
     private static final float EASY_POLICE_SPAWN_INTERVAL = 5f;   // before first car
     private static final float HARD_POLICE_SPAWN_INTERVAL = 1.5f; // after first car (slightly more often)
 
     private float policeSpawnInterval = EASY_POLICE_SPAWN_INTERVAL;
     private boolean firstPoliceCarSpawned = false;
+
+    // Police phase -> military phase transition
+    private int policeCarsPassed = 0;
+    private boolean stopOfficerSpawns = false;
+    private boolean stopCarSpawns = false;
+    private boolean policePhaseFinished = false;
+
 
     // Screen boundaries
     private static final float LEFT_WALL = 0f;
@@ -252,6 +283,108 @@ public class LevelOne extends LevelController {
             car.render(shapes);
         }
 
+        // Military planes (stylized JAS Gripen)
+        for (MilitaryPlane plane : planes) {
+            float bodyLength = 110f;
+            float bodyHeight = 14f;
+            float cx = plane.x;
+            float cy = plane.y;
+
+            int dir = plane.dir; // 1 = left->right, -1 = right->left
+
+            // Base color: dark grey/blue
+            shapes.setColor(0.18f, 0.18f, 0.26f, 1f);
+
+            // ===== FUSELAGE (long, slender body) =====
+            // We'll draw as if facing right, then flip with dir.
+            float bodyX = cx - (bodyLength * 0.5f) * dir;
+            float bodyY = cy - bodyHeight * 0.5f;
+            shapes.rect(bodyX, bodyY, bodyLength * dir, bodyHeight);
+
+            // ===== NOSE (pointy) =====
+            float noseLength = bodyLength * 0.28f;
+            float noseHeight = bodyHeight * 0.8f;
+            float noseBaseX = cx + (bodyLength * 0.5f - noseLength) * dir;
+            float noseBaseY = cy - noseHeight * 0.5f;
+
+            shapes.setColor(0.2f, 0.2f, 0.32f, 1f);
+            // approximate triangle nose by two overlapping rectangles
+            shapes.rect(noseBaseX, noseBaseY, noseLength * dir, noseHeight * 0.5f);
+            shapes.rect(noseBaseX, cy,           noseLength * dir, noseHeight * 0.5f);
+
+            // ===== DELTA WING =====
+            shapes.setColor(0.22f, 0.22f, 0.30f, 1f);
+
+            float wingSpan   = bodyLength * 0.95f;
+            float wingWidth  = bodyHeight * 1.8f;
+            float wingCenterX = cx - bodyLength * 0.05f * dir;
+            float wingCenterY = cy - wingWidth * 0.5f;
+
+            // main wing block
+            shapes.rect(wingCenterX - (wingSpan * 0.5f) * dir, wingCenterY, wingSpan * dir, wingWidth * 0.55f);
+
+            // rear taper (suggest triangle)
+            shapes.rect(wingCenterX - (wingSpan * 0.25f) * dir, wingCenterY - wingWidth * 0.2f,
+                wingSpan * 0.5f * dir, wingWidth * 0.3f);
+
+            // ===== CANARDS (small front wings) =====
+            shapes.setColor(0.25f, 0.25f, 0.35f, 1f);
+            float canardSpan  = bodyLength * 0.35f;
+            float canardWidth = bodyHeight * 0.5f;
+
+            float canardCenterX = cx - bodyLength * 0.05f * dir;  // just ahead of wing root
+            float canardY = cy + bodyHeight * 0.4f;
+
+            shapes.rect(canardCenterX - (canardSpan * 0.5f) * dir, canardY - canardWidth * 0.5f,
+                canardSpan * dir, canardWidth);
+
+            // ===== VERTICAL TAIL =====
+            shapes.setColor(0.2f, 0.2f, 0.32f, 1f);
+
+            float tailLength = bodyLength * 0.18f;
+            float tailHeight = bodyHeight * 1.8f;
+            float tailBaseX = cx - (bodyLength * 0.5f - tailLength * 0.2f) * dir;
+            float tailBaseY = cy + bodyHeight * 0.2f;
+
+            shapes.rect(tailBaseX, tailBaseY, tailLength * dir, tailHeight);
+
+            // ===== COCKPIT CANOPY =====
+            shapes.setColor(0.6f, 0.8f, 1f, 1f);
+            float canopyLength = bodyLength * 0.22f;
+            float canopyHeight = bodyHeight * 0.6f;
+            float canopyX = cx + bodyLength * 0.05f * dir;
+            float canopyY = cy + bodyHeight * 0.1f;
+
+            shapes.rect(canopyX - (canopyLength * 0.5f) * dir,
+                canopyY - canopyHeight * 0.5f,
+                canopyLength * dir, canopyHeight);
+        }
+
+
+
+        // Bombs & explosions
+        for (Bomb bomb : bombs) {
+            if (!bomb.alive) continue;
+
+            if (!bomb.exploded) {
+                // falling bomb
+                shapes.setColor(0.2f, 0.2f, 0.2f, 1f);
+                shapes.circle(bomb.x, bomb.y, 8f);
+                shapes.setColor(0.9f, 0.9f, 0.5f, 1f);
+                shapes.rect(bomb.x - 2f, bomb.y + 4f, 4f, 6f); // tiny fin
+            } else {
+                // explosion
+                float t = bomb.explosionTimer / bomb.explosionDuration; // 1 → 0
+                float radius = bomb.explosionRadius * (1f + 0.2f * (1f - t));
+
+                shapes.setColor(1f, 0.9f, 0.3f, t);
+                shapes.circle(bomb.explosionX, bomb.explosionY + 5f, radius);
+                shapes.setColor(1f, 0.6f, 0.1f, t);
+                shapes.circle(bomb.explosionX, bomb.explosionY + 5f, radius * 0.7f);
+            }
+        }
+
+
         // Health bar (top-left)
         float barWidth  = 200f;
         float barHeight = 18f;
@@ -292,14 +425,22 @@ public class LevelOne extends LevelController {
         if (levelMusic != null) {
             levelMusic.dispose();
         }
+        if (militaryMusic != null) {
+            militaryMusic.dispose();
+        }
     }
+
 
     @Override
     public void hide() {
         if (levelMusic != null && levelMusic.isPlaying()) {
             levelMusic.stop();
         }
+        if (militaryMusic != null && militaryMusic.isPlaying()) {
+            militaryMusic.stop();
+        }
     }
+
 
     // All the private helper methods remain the same...
     private void renderIntroText(SpriteBatch batch, float vw, float vh) {
@@ -516,6 +657,187 @@ public class LevelOne extends LevelController {
     }
 
     private void updateGameplay(float delta) {
+        if (stage == Stage.POLICE) {
+            updatePolicePhase(delta);
+        } else {
+            updateMilitaryPhase(delta);
+        }
+    }
+
+    private void updateMilitaryPhase(float delta) {
+        // 1) Fade out old music
+        if (musicFadingOut && levelMusic != null) {
+            musicFadeTimer -= delta;
+            float t = Math.max(0f, musicFadeTimer / MUSIC_FADE_DURATION);
+            levelMusic.setVolume(0.6f * t);
+            if (musicFadeTimer <= 0f) {
+                levelMusic.stop();
+                musicFadingOut = false;
+            }
+        }
+
+        // 2) Start new music once fade is done
+        if (!militaryMusicStarted && !musicFadingOut) {
+            try {
+                if (militaryMusic == null) {
+                    FileHandle musicFile = Gdx.files.internal("music/dont_worry.mp3");
+                    if (musicFile.exists()) {
+                        militaryMusic = Gdx.audio.newMusic(musicFile);
+                        militaryMusic.setLooping(true);
+                        militaryMusic.setVolume(0.6f);
+                        militaryMusic.play();
+                    }
+                } else if (!militaryMusic.isPlaying()) {
+                    militaryMusic.play();
+                }
+                militaryMusicStarted = true;
+            } catch (Exception e) {
+                Gdx.app.error("LevelOne", "Error starting military music", e);
+            }
+        }
+
+        // 3) Update Venom movement
+        venom.update(delta, platforms);
+        enforceScreenBoundaries();
+        updateBlobsAndShooting(delta);
+
+        Rectangle venomBounds = venom.getBounds();
+        float venomCenterX = venomBounds.x + venomBounds.width * 0.5f;
+        float venomCenterY = venomBounds.y + venomBounds.height * 0.5f;
+
+        // 4) Spawn planes every 15 seconds
+        militaryPlaneTimer -= delta;
+        if (militaryPlaneTimer <= 0f) {
+            spawnMilitaryPlane();
+            militaryPlaneTimer = MILITARY_PLANE_INTERVAL;
+        }
+
+        // 5) Update planes (move + drop bombs)
+        for (int i = planes.size - 1; i >= 0; i--) {
+            MilitaryPlane plane = planes.get(i);
+            plane.x += plane.speed * delta * plane.dir;
+
+            // Drop bomb once, roughly above Venom
+            if (!plane.droppedBomb) {
+                boolean passedVenom =
+                    (plane.dir > 0 && plane.x > venomCenterX) ||
+                        (plane.dir < 0 && plane.x < venomCenterX);
+                if (passedVenom) {
+                    dropBombFromPlane(plane);
+                }
+            }
+
+            if ((plane.dir > 0 && plane.x > camera.viewportWidth + 120f) ||
+                (plane.dir < 0 && plane.x < -120f)) {
+                planes.removeIndex(i);
+            }
+        }
+
+        // 6) Update bombs & explosions
+        for (int i = bombs.size - 1; i >= 0; i--) {
+            Bomb bomb = bombs.get(i);
+            if (!bomb.alive) {
+                bombs.removeIndex(i);
+                continue;
+            }
+
+            if (!bomb.exploded) {
+                bomb.y += bomb.vy * delta;
+
+                Rectangle bRect = bomb.getBounds();
+
+                // Hit Venom while falling
+                if (bRect.overlaps(venomBounds)) {
+                    playerHealth = 0f;
+                    bomb.alive = false;
+                    continue;
+                }
+
+                // Hit ground or platforms -> explosion
+                if (bRect.overlaps(groundPlatform) ||
+                    bRect.overlaps(leftRoofPlatform) ||
+                    bRect.overlaps(rightRoofPlatform) ||
+                    bRect.overlaps(truckPlatform)) {
+
+                    bomb.exploded = true;
+                    bomb.explosionTimer = bomb.explosionDuration;
+                    bomb.explosionX = bomb.x;
+                    bomb.explosionY = bRect.y;
+                }
+            } else {
+                // Explosion active
+                bomb.explosionTimer -= delta;
+
+                float dx = venomCenterX - bomb.explosionX;
+                float dy = venomCenterY - bomb.explosionY;
+                if (dx * dx + dy * dy < bomb.explosionRadius * bomb.explosionRadius) {
+                    playerHealth = 0f;
+                }
+
+                if (bomb.explosionTimer <= 0f) {
+                    bomb.alive = false;
+                }
+            }
+        }
+
+        // 7) Check game over
+        if (playerHealth <= 0f) {
+            game.setScreen(new GameOverScreen(game));
+            return;
+        }
+
+        // 8) ESC → back to intro
+        if (Gdx.input.isKeyJustPressed(Input.Keys.ESCAPE)) {
+            game.setScreenWithFade(new IntroScreen(game));
+        }
+    }
+
+
+    private void spawnMilitaryPlane() {
+        MilitaryPlane plane = new MilitaryPlane();
+        plane.y = GROUND_TOP_Y + 480f; // high in the sky
+        plane.speed = 220f;
+        plane.dir = Math.random() < 0.5 ? 1 : -1;
+        plane.x = (plane.dir > 0) ? -120f : camera.viewportWidth + 120f;
+        planes.add(plane);
+    }
+
+    private void dropBombFromPlane(MilitaryPlane plane) {
+        Bomb bomb = new Bomb();
+        bomb.x = plane.x;
+        bomb.y = plane.y - 20f;
+        bombs.add(bomb);
+        plane.droppedBomb = true;
+    }
+
+    private void updateBlobsAndShooting(float delta) {
+        // Cooldown timer
+        if (blobCooldown > 0f) {
+            blobCooldown -= delta;
+        }
+
+        // Shoot blob with F (allowed in ALL stages)
+        if (Gdx.input.isKeyJustPressed(Input.Keys.F) && blobCooldown <= 0f) {
+            float mx = venom.getMouthX();
+            float my = venom.getMouthY();
+            int dir = venom.isFacingRight() ? 1 : -1;
+
+            blobs.add(new BlobProjectile(mx, my, dir));
+            blobCooldown = 0.25f; // 4 blobs per second max
+        }
+
+        // Update blobs and remove dead ones
+        for (int i = blobs.size - 1; i >= 0; i--) {
+            BlobProjectile b = blobs.get(i);
+            b.update(delta);
+            if (!b.isAlive()) {
+                blobs.removeIndex(i);
+            }
+        }
+    }
+
+
+    private void updatePolicePhase(float delta) {
         // Delayed music start - only if music file exists
         if (!musicStarted && levelMusic != null && musicFileExists) {
             musicDelay -= delta;
@@ -536,6 +858,8 @@ public class LevelOne extends LevelController {
         // ENFORCE SCREEN BOUNDARIES - Add this section
         enforceScreenBoundaries();
 
+        updateBlobsAndShooting(delta);
+
         // Blob shooting cooldown
         if (blobCooldown > 0f) {
             blobCooldown -= delta;
@@ -548,7 +872,7 @@ public class LevelOne extends LevelController {
 
         // Spawn policemen (interval depends on difficulty)
         spawnTimer -= delta;
-        if (spawnTimer <= 0f) {
+        if (!stopOfficerSpawns && spawnTimer <= 0f) {
             spawnTimer = policeSpawnInterval;
 
             boolean fromLeft = Math.random() < 0.5;
@@ -581,7 +905,7 @@ public class LevelOne extends LevelController {
 
         // Spawn police car every 38 seconds (first one after ~40s)
         policeCarTimer -= delta;
-        if (policeCarTimer <= 0f) {
+        if (!stopCarSpawns && policeCarTimer <= 0f) {
             policeCarTimer = 38f;
 
             boolean fromLeft = Math.random() < 0.5;
@@ -598,13 +922,27 @@ public class LevelOne extends LevelController {
         }
 
         // Update police cars
+        // Update police cars
         for (int i = policeCars.size - 1; i >= 0; i--) {
             PoliceCar car = policeCars.get(i);
             car.update(delta);
-            if (!car.isAlive() || car.isOffscreen(camera.viewportWidth)) {
+
+            boolean offscreen = car.isOffscreen(camera.viewportWidth);
+
+            if (!car.isAlive() || offscreen) {
+                if (offscreen) {
+                    policeCarsPassed++;
+
+                    // After second police car has driven past → stop officer spawns
+                    if (policeCarsPassed >= 2) {
+                        stopOfficerSpawns = true;
+                    }
+                }
+
                 policeCars.removeIndex(i);
             }
         }
+
 
         Rectangle venomBounds = venom.getBounds();
 
@@ -667,29 +1005,45 @@ public class LevelOne extends LevelController {
             return;
         }
 
-        // Shoot blob with F
-        if (Gdx.input.isKeyJustPressed(Input.Keys.F) && blobCooldown <= 0f) {
-            float mx = venom.getMouthX();
-            float my = venom.getMouthY();
-            int dir = venom.isFacingRight() ? 1 : -1;
 
-            blobs.add(new BlobProjectile(mx, my, dir));
-            blobCooldown = 0.25f; // 4 blobs per second max
-        }
-
-        // Update blobs and remove dead ones
-        for (int i = blobs.size - 1; i >= 0; i--) {
-            BlobProjectile b = blobs.get(i);
-            b.update(delta);
-            if (!b.isAlive()) {
-                blobs.removeIndex(i);
-            }
-        }
 
         if (Gdx.input.isKeyJustPressed(Input.Keys.ESCAPE)) {
             game.setScreenWithFade(new IntroScreen(game));
         }
+
+        // Transition condition:
+        // - at least 2 cars have passed
+        // - no more officers alive
+        // - no more cars alive
+        if (!policePhaseFinished
+            && policeCarsPassed >= 2
+            && police.size == 0
+            && policeCars.size == 0) {
+
+            policePhaseFinished = true;
+            stopCarSpawns = true;
+            startMilitaryPhase();
+        }
+
     }
+
+    private void startMilitaryPhase() {
+        stage = Stage.MILITARY;
+
+        // Ensure all police spawning is off
+        stopOfficerSpawns = true;
+        stopCarSpawns = true;
+
+        // Start fading out current music, if any
+        if (levelMusic != null && levelMusic.isPlaying()) {
+            musicFadingOut = true;
+            musicFadeTimer = MUSIC_FADE_DURATION;
+        }
+
+        // Wait a few seconds before first plane
+        militaryPlaneTimer = 5f;
+    }
+
 
     private void enforceScreenBoundaries() {
         Rectangle venomBounds = venom.getBounds();
@@ -708,4 +1062,32 @@ public class LevelOne extends LevelController {
             venom.getVelocity().x = 0;
         }
     }
+
+    private static class MilitaryPlane {
+        float x;
+        float y;
+        float speed;
+        int dir; // 1 = left->right, -1 = right->left
+        boolean alive = true;
+        boolean droppedBomb = false;
+    }
+
+    private static class Bomb {
+        float x;
+        float y;
+        float vy = -260f; // fall speed
+        boolean alive = true;
+        boolean exploded = false;
+
+        float explosionX;
+        float explosionY;
+        float explosionTimer = 0f;
+        float explosionDuration = 0.6f;
+        float explosionRadius = 90f;
+
+        Rectangle getBounds() {
+            return new Rectangle(x - 8f, y - 8f, 16f, 16f);
+        }
+    }
+
 }
