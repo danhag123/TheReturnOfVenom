@@ -129,7 +129,7 @@ public class TestLevel extends LevelController {
 
         // Instructions
         font.getData().setScale(0.8f);
-        String help = "Move: A/D or Arrows   Jump: SPACE or UP   F: Blob   G: Tongue";
+        String help = "Move: A/D or Arrows   Jump: SPACE or UP  G: Tongue";
         layout.setText(font, help);
         font.draw(batch, layout, (vw - layout.width) / 2f, 60f);
 
