@@ -1,5 +1,5 @@
 ## Copyrighted music
-asssets/music/boaz_and_the_dogs.mp3
+assets/music/*.mp3
 
 ## Gradle:
 .gradle/
